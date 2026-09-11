@@ -1,0 +1,1048 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Voice Teleprompter</title>
+<style>
+  :root{
+    --bg:#0b0d10;
+    --panel:#14181d;
+    --line:#262c34;
+    --text:#e8edf2;
+    --muted:#8b98a6;
+    --accent:#4da3ff;
+    --accent-dim:#1d4d80;
+    --good:#3ddc84;
+    --bad:#ff6b6b;
+    --read:#4a545f;
+    --now:#ffd166;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;background:var(--bg);color:var(--text);
+    font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
+    overflow:hidden;
+  }
+  button{font:inherit;color:inherit;cursor:pointer}
+
+  /* ---------- editor ---------- */
+  #editor{
+    position:absolute;inset:0;overflow-y:auto;
+    display:flex;justify-content:center;
+    padding:32px 20px 60px;
+  }
+  .wrap{width:100%;max-width:860px}
+  h1{font-size:26px;margin:0 0 4px;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:14px;margin:0 0 22px}
+  textarea{
+    width:100%;min-height:340px;resize:vertical;
+    background:var(--panel);color:var(--text);
+    border:1px solid var(--line);border-radius:12px;
+    padding:16px 18px;font-size:16px;line-height:1.6;
+    font-family:inherit;outline:none;
+  }
+  textarea:focus{border-color:var(--accent-dim)}
+  .row{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;margin:18px 0}
+  .field{display:flex;flex-direction:column;gap:6px}
+  .field label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+  select,input[type=range]{
+    background:var(--panel);color:var(--text);border:1px solid var(--line);
+    border-radius:8px;padding:8px 10px;font:inherit;outline:none;
+  }
+  input[type=range]{padding:0;height:32px;width:150px;accent-color:var(--accent)}
+  .check{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--muted);padding-bottom:9px}
+  .check input{accent-color:var(--accent);width:16px;height:16px}
+  .actions{display:flex;gap:12px;align-items:center;margin-top:6px;flex-wrap:wrap}
+  .btn{
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:11px 18px;font-size:15px;transition:.15s;
+  }
+  .btn:hover{border-color:var(--accent-dim);background:#1a2029}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#04121f;font-weight:600}
+  .btn.primary:hover{background:#6ab4ff}
+  .btn.ghost{background:transparent}
+  .hint{font-size:13px;color:var(--muted);line-height:1.8;margin-top:18px;
+        border-top:1px solid var(--line);padding-top:16px}
+  .hint kbd{background:var(--panel);border:1px solid var(--line);border-bottom-width:2px;
+            border-radius:5px;padding:1px 6px;font-size:12px;font-family:inherit}
+  .warn{display:none;margin:14px 0 0;padding:12px 14px;border-radius:10px;
+        background:#3a1f1f;border:1px solid #6b3030;color:#ffc9c9;font-size:14px;line-height:1.5}
+  .warn.show{display:block}
+
+  /* ---------- prompter ---------- */
+  #prompter{position:absolute;inset:0;display:none;overflow:hidden}
+  #prompter.on{display:block}
+  #viewport{position:absolute;inset:0;overflow:hidden}
+  #stage{
+    position:absolute;left:0;right:0;top:0;
+    padding:0 6vw;will-change:transform;
+  }
+  #script{font-size:46px;line-height:1.5;font-weight:600;letter-spacing:-.01em}
+  #script p{margin:0 0 .7em}
+  #script p.blank{margin:0}
+  .w{color:var(--text);transition:color .18s ease}
+  .w.read{color:var(--read)}
+  .w.now{color:var(--now)}
+  .w:hover{text-decoration:underline;text-decoration-color:var(--accent);cursor:pointer}
+  #viewport.mirrorX{transform:scaleX(-1)}
+  #viewport.mirrorY{transform:scaleY(-1)}
+  #viewport.mirrorX.mirrorY{transform:scale(-1,-1)}
+
+  #readline{
+    position:absolute;left:0;right:0;height:0;pointer-events:none;z-index:3;
+    border-top:1px solid rgba(77,163,255,.35);
+  }
+  #readline::before,#readline::after{
+    content:"";position:absolute;top:-6px;border:6px solid transparent;
+  }
+  #readline::before{left:0;border-left-color:var(--accent)}
+  #readline::after{right:0;border-right-color:var(--accent)}
+  .fade{position:absolute;left:0;right:0;height:20vh;pointer-events:none;z-index:2}
+  .fade.top{top:0;background:linear-gradient(var(--bg),rgba(11,13,16,0))}
+  .fade.bot{bottom:0;background:linear-gradient(rgba(11,13,16,0),var(--bg))}
+
+  #bar{
+    position:absolute;left:0;right:0;bottom:0;z-index:5;
+    display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    padding:12px 16px;background:rgba(14,17,21,.92);
+    border-top:1px solid var(--line);backdrop-filter:blur(8px);
+    transition:opacity .35s, transform .35s;
+  }
+  #bar.hide{opacity:0;transform:translateY(100%)}
+  .pill{
+    display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);
+    background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:7px 14px;
+  }
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--muted);flex:none}
+  .dot.live{background:var(--good);animation:pulse 1.4s infinite}
+  .dot.err{background:var(--bad)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+  .sbtn{
+    background:var(--panel);border:1px solid var(--line);border-radius:9px;
+    padding:8px 13px;font-size:14px;transition:.15s;
+  }
+  .sbtn:hover{border-color:var(--accent-dim);background:#1a2029}
+  .sbtn.active{border-color:var(--accent);color:var(--accent)}
+  .spacer{flex:1}
+  #livePill{position:absolute;top:12px;right:14px;z-index:7;background:rgba(20,24,29,.92)}
+  #debug{
+    position:absolute;left:14px;top:12px;z-index:7;display:none;white-space:pre;
+    font:12px/1.6 Consolas,ui-monospace,monospace;color:var(--muted);
+    background:rgba(20,24,29,.94);border:1px solid var(--line);border-radius:8px;padding:8px 12px;
+  }
+  #debug.show{display:block}
+  #pos{color:var(--muted);font-variant-numeric:tabular-nums;border-left:1px solid var(--line);padding-left:8px}
+  #heard{
+    font-size:12px;color:var(--muted);max-width:34ch;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;font-style:italic;
+  }
+  #progress{position:absolute;left:0;top:0;height:2px;background:var(--accent);width:0;
+            transition:width .25s ease;z-index:6}
+</style>
+</head>
+<body>
+
+<div id="editor">
+  <div class="wrap">
+    <h1>Voice Teleprompter</h1>
+    <p class="sub">Paste your script, press start, and it scrolls along as you read it aloud.</p>
+
+    <textarea id="input" spellcheck="false" placeholder="Paste or type your script here..."></textarea>
+
+    <div class="row">
+      <div class="field">
+        <label for="lang">Language</label>
+        <select id="lang">
+          <option value="en-US">English (US)</option>
+          <option value="en-GB">English (UK)</option>
+          <option value="en-AU">English (AU)</option>
+          <option value="en-IN">English (India)</option>
+          <option value="es-ES">Spanish</option>
+          <option value="fr-FR">French</option>
+          <option value="de-DE">German</option>
+          <option value="it-IT">Italian</option>
+          <option value="pt-BR">Portuguese (BR)</option>
+          <option value="nl-NL">Dutch</option>
+          <option value="zh-CN">Chinese (Mandarin)</option>
+          <option value="ja-JP">Japanese</option>
+          <option value="ko-KR">Korean</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="size">Text size <span id="sizeVal">46</span>px</label>
+        <input type="range" id="size" min="20" max="110" step="2" value="46">
+      </div>
+      <div class="field">
+        <label for="linepos">Reading line <span id="lineVal">38</span>%</label>
+        <input type="range" id="linepos" min="15" max="70" step="1" value="38">
+      </div>
+      <label class="check"><input type="checkbox" id="mirrorX"> Mirror horizontally</label>
+      <label class="check"><input type="checkbox" id="mirrorY"> Flip vertically</label>
+    </div>
+
+    <div class="actions">
+      <button class="btn primary" id="start">Start reading</button>
+      <button class="btn ghost" id="sample">Load sample text</button>
+      <button class="btn ghost" id="clear">Clear</button>
+    </div>
+
+    <div class="warn" id="warn"></div>
+
+    <div class="hint">
+      <strong>While prompting:</strong>
+      <kbd>Space</kbd> pause / resume listening &nbsp;·&nbsp;
+      <kbd>&uarr;</kbd> <kbd>&darr;</kbd> nudge position &nbsp;·&nbsp;
+      <kbd>+</kbd> <kbd>&minus;</kbd> text size &nbsp;·&nbsp;
+      <kbd>M</kbd> manual auto-scroll &nbsp;·&nbsp;
+      <kbd>R</kbd> back to top &nbsp;·&nbsp;
+      <kbd>D</kbd> diagnostics &nbsp;·&nbsp;
+      <kbd>Esc</kbd> edit script.
+      Click any word to move the cursor there. Your script is saved in this browser automatically.
+    </div>
+  </div>
+</div>
+
+<div id="prompter">
+  <div id="progress"></div>
+  <div id="viewport">
+    <div id="stage"><div id="script"></div></div>
+  </div>
+  <div id="readline"></div>
+  <div class="fade top"></div>
+  <div class="fade bot"></div>
+  <span class="pill" id="livePill"><span class="dot" id="dot"></span><span id="status">Idle</span><span id="pos"></span></span>
+  <div id="debug"></div>
+  <div id="bar">
+    <button class="sbtn" id="toggle">Pause</button>
+    <button class="sbtn" id="restart">Top</button>
+    <button class="sbtn" id="manual">Auto-scroll</button>
+    <button class="sbtn" id="smaller">A&minus;</button>
+    <button class="sbtn" id="bigger">A+</button>
+    <span class="spacer"></span>
+    <span id="heard"></span>
+    <button class="sbtn" id="back">Edit script</button>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+var $ = function(s){ return document.querySelector(s); };
+
+var el = {
+  editor:$("#editor"), prompter:$("#prompter"), input:$("#input"),
+  script:$("#script"), stage:$("#stage"), viewport:$("#viewport"),
+  readline:$("#readline"), bar:$("#bar"), dot:$("#dot"), status:$("#status"),
+  heard:$("#heard"), progress:$("#progress"), warn:$("#warn"), pos:$("#pos"), debug:$("#debug"),
+  lang:$("#lang"), size:$("#size"), sizeVal:$("#sizeVal"),
+  linepos:$("#linepos"), lineVal:$("#lineVal"),
+  mirrorX:$("#mirrorX"), mirrorY:$("#mirrorY")
+};
+
+/* ------------------------------------------------------------------ *
+ * State
+ * ------------------------------------------------------------------ */
+var tokens = [];        // [{norm, forms, el}] - matchable words only
+var cursor = 0;         // display cursor: the word highlighted on screen
+var voice = 0;          // where the alignment says the reader actually is
+var lastPainted = -1;
+var running = false;    // prompter view is open
+var listening = false;  // we want the mic on
+var recog = null;
+var finalWords = [];    // rolling buffer of finalised speech
+var interimWords = [];
+var restartTimer = null;
+var manualMode = false;
+var manualWPM = 130;
+var manualAcc = 0;
+var lastFrame = 0;
+var targetY = 0, curY = 0;
+var fontSize = 46;
+var linePct = 38;
+
+var rate = 2.4;         // measured reading speed, words per second (~145 wpm)
+var paceAcc = 0;        // fractional words owed to the display cursor
+var lastAdvanceAt = 0;  // when the voice position last moved forward
+var lastVoiceAt = 0;    // when we last heard anything at all
+var unmatched = 0;      // spoken words since the last match - off-script counter
+var lastRecoverAt = 0;  // throttles whole-script re-sync searches
+var lastMatchAt = 0;    // last time any speech matched the script
+var lastGuessAt = 0;    // throttles least-bad "best guess" re-syncs
+var quietLevel = 0;     // 0 hearing speech, 1 short pause, 2 long silence (mic hint)
+var statusHold = 0;     // keep a transient status message up until this time
+var lastWpm = 0;        // last time the wpm readout was refreshed
+
+var resultEvents = 0;   // recognition events since listening began
+var finalCount = 0;     // ...of which finalised utterances
+var lastError = "";     // most recent recognition error name
+var lastErrorAt = 0;
+var netErrors = 0;      // consecutive network failures with nothing heard
+var lastDebugAt = 0;
+
+var TAIL = 6;      // how many recent spoken words to align with
+var LOOK_BACK = 12;  // allow re-syncing slightly behind the voice position
+var LOOK_AHEAD = 70; // ...and a good way ahead if lines were skipped
+var THRESHOLD = 0.55; // minimum alignment confidence to move at all
+var RECOVER = 0.7;   // stricter bar for a whole-script re-sync jump
+
+/* ------------------------------------------------------------------ *
+ * Text normalising + fuzzy matching
+ * ------------------------------------------------------------------ */
+var UNI = (function(){ try { new RegExp("\\p{L}","u"); return true; } catch(e){ return false; } })();
+var STRIP = UNI ? new RegExp("[^\\p{L}\\p{N}]", "gu") : /[^a-z0-9]/g;
+
+function normalize(w){
+  return w.toLowerCase().replace(STRIP, "");
+}
+
+var ONES = ["zero","one","two","three","four","five","six","seven","eight","nine","ten",
+  "eleven","twelve","thirteen","fourteen","fifteen","sixteen","seventeen","eighteen","nineteen"];
+var TENS = ["","","twenty","thirty","forty","fifty","sixty","seventy","eighty","ninety"];
+
+function numberWords(n){
+  var out = [];
+  if(n < 20){ out.push(ONES[n]); return out; }
+  if(n < 100){
+    out.push(TENS[Math.floor(n/10)]);
+    if(n % 10) out.push(ONES[n%10]);
+    return out;
+  }
+  if(n < 1000){
+    out.push(ONES[Math.floor(n/100)], "hundred");
+    if(n % 100) out = out.concat(numberWords(n%100));
+    return out;
+  }
+  if(n < 1000000){
+    out = numberWords(Math.floor(n/1000)).concat(["thousand"]);
+    if(n % 1000) out = out.concat(numberWords(n%1000));
+    return out;
+  }
+  return [String(n)];
+}
+
+// Alternative spoken forms for a script word (numbers read aloud, etc.)
+function formsFor(norm){
+  var forms = [norm];
+  if(/^\d+$/.test(norm)){
+    var n = parseInt(norm, 10);
+    if(n >= 0 && n < 1000000){
+      forms = forms.concat(numberWords(n));
+      // years like 1984 / 2024 are usually read as two pairs
+      if(norm.length === 4 && n >= 1100 && n <= 2099){
+        forms = forms.concat(numberWords(Math.floor(n/100)))
+                     .concat(n % 100 === 0 ? ["hundred"] : numberWords(n%100));
+        if(n % 100 < 10 && n % 100 !== 0) forms.push("oh");
+      }
+    }
+  }
+  var seen = {}, out = [];
+  for(var i=0;i<forms.length;i++){
+    if(forms[i] && !seen[forms[i]]){ seen[forms[i]] = 1; out.push(forms[i]); }
+  }
+  return out;
+}
+
+function levenshtein(a, b){
+  var al = a.length, bl = b.length;
+  if(!al) return bl;
+  if(!bl) return al;
+  if(Math.abs(al - bl) > 3) return Math.abs(al - bl);
+  var prev = new Array(bl + 1), cur = new Array(bl + 1), i, j;
+  for(j = 0; j <= bl; j++) prev[j] = j;
+  for(i = 1; i <= al; i++){
+    cur[0] = i;
+    var ca = a.charCodeAt(i-1);
+    for(j = 1; j <= bl; j++){
+      var cost = ca === b.charCodeAt(j-1) ? 0 : 1;
+      var m = prev[j] + 1;
+      var d = cur[j-1] + 1;
+      var s = prev[j-1] + cost;
+      cur[j] = m < d ? (m < s ? m : s) : (d < s ? d : s);
+    }
+    var t = prev; prev = cur; cur = t;
+  }
+  return prev[bl];
+}
+
+// How well a spoken word matches a script token: 0 (no) .. 1 (exact)
+function wordScore(spoken, tok){
+  if(!spoken) return 0;
+  if(spoken === tok.norm) return 1;
+  var f = tok.forms;
+  for(var i=1;i<f.length;i++) if(f[i] === spoken) return 0.92;
+  var a = spoken, b = tok.norm;
+  // numbers get their own rules: ASR merges "401 or 402" into "4010402",
+  // and a misread digit ("402" for "401") is still a strong location signal
+  if(a.length >= 3 && b.length >= 3 && /^\d+$/.test(a) && /^\d+$/.test(b)){
+    if(a.indexOf(b) >= 0 || b.indexOf(a) >= 0) return 0.7;
+    if(levenshtein(a, b) <= 1) return 0.55;
+  }
+  var maxLen = a.length > b.length ? a.length : b.length;
+  if(maxLen <= 3) return 0;                       // short words must be exact
+  if(a.charAt(0) !== b.charAt(0) && maxLen <= 5) return 0;
+  var sim = 1 - levenshtein(a, b) / maxLen;
+  if(sim >= 0.8) return 0.85;
+  if(sim >= 0.62) return 0.5;
+  return 0;
+}
+
+/* ------------------------------------------------------------------ *
+ * Building the script view
+ * ------------------------------------------------------------------ */
+function buildScript(text){
+  el.script.innerHTML = "";
+  tokens = [];
+  cursor = 0;
+  voice = 0;
+  paceAcc = 0;
+  unmatched = 0;
+  lastAdvanceAt = 0;
+  lastMatchAt = 0;
+  lastGuessAt = 0;
+  lastPainted = -1;
+
+  var frag = document.createDocumentFragment();
+  var paras = text.replace(/\r/g, "").split("\n");
+
+  paras.forEach(function(line){
+    var p = document.createElement("p");
+    if(!line.trim()){
+      p.className = "blank";
+      p.innerHTML = "&nbsp;";
+      frag.appendChild(p);
+      return;
+    }
+    line.trim().split(/\s+/).forEach(function(word){
+      var span = document.createElement("span");
+      span.className = "w";
+      span.textContent = word;
+      var norm = normalize(word);
+      if(norm){
+        span.dataset.i = tokens.length;
+        tokens.push({ norm: norm, forms: formsFor(norm), el: span });
+      }
+      p.appendChild(span);
+      p.appendChild(document.createTextNode(" "));
+    });
+    frag.appendChild(p);
+  });
+
+  el.script.appendChild(frag);
+  paint(true);
+}
+
+function paint(force){
+  if(!tokens.length) return;
+  if(cursor === lastPainted && !force) return;
+
+  var lo, hi;
+  if(force || lastPainted < 0){ lo = 0; hi = tokens.length - 1; }
+  else {
+    lo = Math.min(lastPainted, cursor) - 1;
+    hi = Math.max(lastPainted, cursor) + 1;
+    if(lo < 0) lo = 0;
+    if(hi > tokens.length - 1) hi = tokens.length - 1;
+  }
+  for(var i = lo; i <= hi; i++){
+    var c = i < cursor ? "w read" : (i === cursor ? "w now" : "w");
+    if(tokens[i].el.className !== c) tokens[i].el.className = c;
+  }
+  lastPainted = cursor;
+  el.progress.style.width = (100 * Math.min(cursor, tokens.length) / tokens.length) + "%";
+  el.pos.textContent = Math.min(cursor + 1, tokens.length) + " / " + tokens.length;
+  aim();
+}
+
+/* ------------------------------------------------------------------ *
+ * Scrolling
+ * ------------------------------------------------------------------ */
+function readLineY(){ return window.innerHeight * (linePct / 100); }
+
+function aim(){
+  var i = Math.min(cursor, tokens.length - 1);
+  if(i < 0) return;
+  var node = tokens[i].el;
+  targetY = readLineY() - node.offsetTop - el.script.offsetTop;
+}
+
+// Walk the on-screen highlight toward the voice position one word at a time,
+// at the reader's measured pace - not in recognition-sized jumps. Never runs
+// ahead of the voice, so a reading pause simply holds the prompter still.
+// Returns true when the highlight moved and needs repainting.
+function paceStep(dt){
+  var gap = voice - cursor;
+  if(gap < 0){ cursor = voice; paceAcc = 0; return true; }      // jumped back
+  if(gap === 0){ paceAcc = 0; return false; }                   // caught up: hold
+  if(gap > 25){ cursor = voice - 6; paceAcc = 0; return true; } // big jump: close most of it now
+  var speed = rate * (gap > 4 ? 1 + (gap - 4) * 0.35 : 1);      // trail by a few words at most
+  paceAcc += speed * dt;
+  var moved = false;
+  while(paceAcc >= 1 && cursor < voice){ paceAcc -= 1; cursor++; moved = true; }
+  return moved;
+}
+
+function frame(now){
+  if(!running) return;
+  var dt = lastFrame ? Math.min((now - lastFrame) / 1000, 0.1) : 0.016;
+  lastFrame = now;
+
+  if(manualMode && tokens.length){
+    manualAcc += (manualWPM / 60) * dt;
+    while(manualAcc >= 1){
+      manualAcc -= 1;
+      if(cursor < tokens.length){ cursor++; voice = cursor; }
+    }
+    paint(false);
+  } else if(tokens.length && paceStep(dt)){
+    paint(false);
+  }
+
+  if(listening && now > statusHold){
+    // a reading pause holds position; say so instead of looking stuck,
+    // and if nothing has been heard for ages, point at the likely culprit
+    var q = now - lastVoiceAt;
+    var lvl = q > 15000 ? 2 : (q > 4000 ? 1 : 0);
+    if(lvl !== quietLevel){
+      quietLevel = lvl;
+      if(lvl === 0) setStatus("Listening", "live");
+      else if(lvl === 1) setStatus("Waiting for your voice", "live");
+      else setStatus("Nothing heard - is the mic muted?", "err");
+    } else if(lvl === 0 && lastAdvanceAt && now - lastAdvanceAt < 3000 &&
+              now - lastWpm > 1000 && voice < tokens.length){
+      lastWpm = now;
+      el.status.textContent = "Listening · " + Math.round(rate * 60) + " wpm";
+    }
+  }
+
+  if(el.debug.classList.contains("show") && now - lastDebugAt > 500){
+    lastDebugAt = now;
+    el.debug.textContent = debugText(now);
+  }
+
+  var diff = targetY - curY;
+  if(Math.abs(diff) > 0.4){
+    // ease toward the target; snap if we are miles away (big jump)
+    curY += Math.abs(diff) > 1200 ? diff * 0.35 : diff * (1 - Math.pow(0.0015, dt));
+    el.stage.style.transform = "translate3d(0," + curY.toFixed(1) + "px,0)";
+  }
+  requestAnimationFrame(frame);
+}
+
+/* ------------------------------------------------------------------ *
+ * Matching spoken words to the script
+ * ------------------------------------------------------------------ */
+function wordsOf(text){
+  var out = [];
+  var raw = text.split(/\s+/);
+  for(var i=0;i<raw.length;i++){
+    var n = normalize(raw[i]);
+    if(n) out.push(n);
+  }
+  return out;
+}
+
+// Align a run of spoken words against a window of the script and return the
+// best end position with a confidence score. A local sequence alignment (not
+// a fixed offset compare), so dropped words, inserted filler and contractions
+// - "wanna" for "want to" - do not knock the match off the text. A null
+// anchor searches the window with no positional bias.
+function align(tail, start, end, anchor){
+  var m = tail.length;
+  var n = end - start + 1;
+  if(!m || n < 1) return null;
+
+  var i, j, W = 0, wt = new Array(m);
+  for(i = 0; i < m; i++){ wt[i] = i + 1; W += wt[i]; }  // recent words weigh more
+  var GAP_SPOKEN = 0.45;              // heard a word that is not in the script
+  var GAP_SCRIPT = 0.30 * (W / m);    // a script word that went unheard
+
+  var prev = new Array(n + 1), cur = new Array(n + 1), swap;
+  for(j = 0; j <= n; j++) prev[j] = 0; // free start: the tail may begin anywhere
+
+  for(i = 1; i <= m; i++){
+    cur[0] = prev[0] - GAP_SPOKEN * wt[i-1];
+    for(j = 1; j <= n; j++){
+      var s = wordScore(tail[i-1], tokens[start + j - 1]);
+      // pairing two unrelated words costs as much as skipping the spoken one,
+      // so trailing junk cannot consume script words at a discount and push
+      // the matched end position past where the reader actually is
+      var hit  = prev[j-1] + (s > 0 ? wt[i-1] * s : -GAP_SPOKEN * wt[i-1]);
+      var skipS = prev[j] - GAP_SPOKEN * wt[i-1];
+      var skipT = cur[j-1] - GAP_SCRIPT;
+      var best = hit > skipS ? hit : skipS;
+      cur[j] = skipT > best ? skipT : best;
+    }
+    swap = prev; prev = cur; cur = swap;
+  }
+
+  var bestPos = -1, bestScore = -1;
+  for(j = 1; j <= n; j++){
+    var p = start + j - 1;
+    var norm = prev[j] / W;
+    if(anchor !== null){
+      norm -= Math.abs(p - anchor) * 0.0025; // prefer matches near the anchor
+      if(p < anchor) norm -= 0.06;           // mild bias against going backwards
+    }
+    if(norm > bestScore){ bestScore = norm; bestPos = p; }
+  }
+  return { pos: bestPos, score: bestScore };
+}
+
+// Move the voice position from fresh speech. Off-script talk scores under the
+// threshold and leaves the position alone; accepted matches also feed the
+// reading-speed estimate that paces the display cursor. Returns whether the
+// speech matched the script.
+function advance(spoken){
+  if(spoken.length < 2 || !tokens.length) return false;
+  // Try the long tail first. If a stumble polluted it ("all all 402 or or"),
+  // retry with only the most recent words at a stricter bar and shorter
+  // reach, so a couple of clean words re-lock the position immediately.
+  var cfg = [[TAIL, THRESHOLD, LOOK_AHEAD], [4, 0.62, 25], [3, 0.7, 12]];
+  var r = null, tried = {};
+  for(var c = 0; c < cfg.length && !r; c++){
+    var len = Math.min(cfg[c][0], spoken.length);
+    if(len < 2 || tried[len]) continue;
+    tried[len] = 1;
+    var reach = len < 3 ? 12 : cfg[c][2];
+    var a = align(spoken.slice(-len),
+                  Math.max(0, voice - LOOK_BACK),
+                  Math.min(tokens.length - 1, voice + reach),
+                  voice);
+    if(a && a.score >= cfg[c][1]) r = a;
+  }
+  if(!r) return false;
+
+  var next = Math.min(r.pos + 1, tokens.length);
+  var now = performance.now();
+  lastMatchAt = now;
+  if(next > voice){
+    var dt = (now - lastAdvanceAt) / 1000;
+    if(lastAdvanceAt && dt > 0.15 && dt < 2.5){
+      // sample the reading speed and smooth it; gaps across pauses are skipped
+      var sample = Math.max(0.7, Math.min(5, (next - voice) / dt));
+      rate += (sample - rate) * 0.3;
+    }
+    lastAdvanceAt = now;
+    voice = next;
+    if(voice >= tokens.length){
+      setStatus("End of script", "");
+      statusHold = now + 3000;
+    }
+  } else if(next < voice){
+    voice = next;            // the reader backed up to repeat a line
+    lastAdvanceAt = now;
+  }
+  unmatched = 0;
+  return true;
+}
+
+// The reader has been talking but nothing matched near the cursor - they may
+// have skipped to a different part of the script. Search the whole text with
+// a stricter confidence bar and jump only on a strong hit, so ad-libbing and
+// room chatter still leave the prompter parked where it was.
+function tryRecover(spoken){
+  var now = performance.now();
+  if(now - lastRecoverAt < 2000) return false;
+  lastRecoverAt = now;
+  var tail = spoken.slice(-8);
+  if(tail.length < 5) return false;
+  var r = align(tail, 0, tokens.length - 1, null);
+  if(!r || r.score < RECOVER) return false;
+  voice = Math.min(r.pos + 1, tokens.length);
+  unmatched = 0;
+  lastAdvanceAt = now;
+  lastMatchAt = now;
+  setStatus("Re-synced", "live");
+  statusHold = now + 1500;
+  quietLevel = 0;
+  return true;
+}
+
+// Last-ditch nudge: speech has kept coming for seconds with nothing accepted
+// (heavy stumbling, mangled numbers). Take the least-bad nearby alignment
+// rather than staying frozen - a human prompter operator does the same.
+function guessResync(spoken){
+  var now = performance.now();
+  if(!lastMatchAt || now - lastMatchAt < 6000) return false;
+  if(now - lastGuessAt < 3000 || spoken.length < 3) return false;
+  lastGuessAt = now;
+  var r = align(spoken.slice(-5),
+                Math.max(0, voice - LOOK_BACK),
+                Math.min(tokens.length - 1, voice + 35),
+                voice);
+  if(!r || r.score < 0.35) return false;
+  voice = Math.min(r.pos + 1, tokens.length);
+  unmatched = 0;
+  lastMatchAt = now;
+  setStatus("Re-synced (best guess)", "live");
+  statusHold = now + 1500;
+  return true;
+}
+
+/* ------------------------------------------------------------------ *
+ * Speech recognition
+ * ------------------------------------------------------------------ */
+var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+function setStatus(text, cls){
+  el.status.textContent = text;
+  el.dot.className = "dot" + (cls ? " " + cls : "");
+  if(cls === "err") el.bar.classList.remove("hide"); // trouble: keep controls in view
+}
+
+// Diagnostics overlay (D key): everything needed to see why words are not
+// arriving - environment, event counts, last error, and the tracker state.
+function debugText(now){
+  var errAgo = lastError ? lastError + " (" + Math.round((now - lastErrorAt) / 1000) + "s ago)" : "-";
+  return "tracker       v3\n" +
+         "recognition   " + (SR ? "available" : "MISSING") + (listening ? ", listening" : ", off") + "\n" +
+         "page          " + location.protocol + "//" + (location.host || "local file") + "\n" +
+         "browser       " + (/electron/i.test(navigator.userAgent) ? "EMBEDDED - speech will not work here" : "ok") + "\n" +
+         "events        " + resultEvents + " (" + finalCount + " final)\n" +
+         "last error    " + errAgo + "\n" +
+         "heard         " + (el.heard.textContent || "-") + "\n" +
+         "voice " + voice + "   shown " + cursor + "   rate " + rate.toFixed(2) + " w/s   miss " + unmatched;
+}
+
+function startRecog(){
+  if(!SR){
+    setStatus("No speech support - use auto-scroll", "err");
+    manualSet(true);
+    return;
+  }
+  stopRecog();
+  recog = new SR();
+  recog.continuous = true;
+  recog.interimResults = true;
+  recog.maxAlternatives = 1;
+  recog.lang = el.lang.value;
+
+  recog.onstart = function(){
+    lastVoiceAt = performance.now();
+    quietLevel = 0;
+    setStatus("Listening", "live");
+  };
+
+  recog.onresult = function(e){
+    var interim = "";
+    for(var i = e.resultIndex; i < e.results.length; i++){
+      var r = e.results[i];
+      if(r.isFinal){
+        var fresh = wordsOf(r[0].transcript);
+        unmatched += fresh.length;
+        finalCount++;
+        finalWords = finalWords.concat(fresh);
+      }
+      else interim += " " + r[0].transcript;
+    }
+    interimWords = wordsOf(interim);
+    if(finalWords.length > 80) finalWords = finalWords.slice(-40);
+    lastVoiceAt = performance.now();
+    resultEvents++;
+    netErrors = 0;
+    var all = finalWords.concat(interimWords);
+    el.heard.textContent = all.slice(-9).join(" ");
+    var ok = advance(all);
+    // plenty of speech but no match near the cursor: look script-wide,
+    // and if even that fails, take the least-bad local guess over freezing
+    if(!ok && unmatched >= 8) ok = tryRecover(all);
+    if(!ok) guessResync(all);
+  };
+
+  recog.onerror = function(e){
+    lastError = e.error;
+    lastErrorAt = performance.now();
+    if(e.error === "not-allowed" || e.error === "service-not-allowed"){
+      listening = false;
+      setStatus("Mic blocked - allow it, or use auto-scroll", "err");
+      syncToggle();
+    } else if(e.error === "network"){
+      // Chrome's recogniser runs on Google's servers: no internet, no words.
+      // Repeated network errors before ANY result usually means an embedded
+      // browser (VS Code, Electron) where the speech service never works.
+      netErrors++;
+      if(resultEvents === 0 && netErrors >= 2){
+        setStatus("Recogniser unavailable here - open in real Chrome via start-teleprompter.bat", "err");
+        statusHold = performance.now() + 60000;
+      } else {
+        setStatus("Speech service unreachable - check internet (M = auto-scroll)", "err");
+        statusHold = performance.now() + 8000;
+      }
+    } else if(e.error === "audio-capture"){
+      listening = false;
+      setStatus("No microphone found", "err");
+      syncToggle();
+    } else if(e.error === "no-speech" || e.error === "aborted"){
+      // silence timeout / our own restart - handled by onend
+    } else {
+      setStatus("Mic error: " + e.error, "err");
+      statusHold = performance.now() + 5000;
+    }
+  };
+
+  recog.onend = function(){
+    if(listening){
+      // Chrome ends the session after silence; restart it.
+      clearTimeout(restartTimer);
+      restartTimer = setTimeout(function(){
+        if(!listening) return;
+        finalWords = [];
+        interimWords = [];
+        try { recog.start(); } catch(err){ /* already starting */ }
+      }, 200);
+    } else {
+      setStatus("Paused", "");
+    }
+  };
+
+  try { recog.start(); }
+  catch(err){ setStatus("Could not start mic", "err"); }
+}
+
+function stopRecog(){
+  clearTimeout(restartTimer);
+  if(recog){
+    recog.onend = null;
+    recog.onresult = null;
+    recog.onerror = null;
+    try { recog.stop(); } catch(e){}
+    try { recog.abort(); } catch(e){}
+    recog = null;
+  }
+}
+
+function listenSet(on){
+  listening = on;
+  if(on){
+    finalWords = []; interimWords = []; unmatched = 0;
+    resultEvents = 0; finalCount = 0; netErrors = 0; lastError = "";
+    lastVoiceAt = performance.now(); quietLevel = 0;
+    startRecog();
+  }
+  else { stopRecog(); setStatus("Paused", ""); }
+  syncToggle();
+}
+
+function syncToggle(){
+  $("#toggle").textContent = listening ? "Pause" : "Listen";
+}
+
+function manualSet(on){
+  manualMode = on;
+  manualAcc = 0;
+  $("#manual").classList.toggle("active", on);
+  $("#manual").textContent = on ? "Auto " + manualWPM + " wpm" : "Auto-scroll";
+  if(on && !listening) setStatus("Auto-scrolling", "");
+}
+
+/* ------------------------------------------------------------------ *
+ * View switching
+ * ------------------------------------------------------------------ */
+function applyLook(){
+  fontSize = parseInt(el.size.value, 10);
+  linePct = parseInt(el.linepos.value, 10);
+  el.sizeVal.textContent = fontSize;
+  el.lineVal.textContent = linePct;
+  el.script.style.fontSize = fontSize + "px";
+  el.readline.style.top = readLineY() + "px";
+  el.viewport.classList.toggle("mirrorX", el.mirrorX.checked);
+  el.viewport.classList.toggle("mirrorY", el.mirrorY.checked);
+  save();
+  if(running){ aim(); }
+}
+
+function startPrompting(){
+  var text = el.input.value.trim();
+  if(!text){
+    el.warn.textContent = "Add some script text first.";
+    el.warn.classList.add("show");
+    el.input.focus();
+    return;
+  }
+  el.warn.classList.remove("show");
+  save();
+  buildScript(el.input.value);
+  el.editor.style.display = "none";
+  el.prompter.classList.add("on");
+  running = true;
+  curY = 0; targetY = 0; lastFrame = 0;
+  el.stage.style.transform = "translate3d(0,0,0)";
+  applyLook();
+  aim();
+  curY = targetY;
+  el.stage.style.transform = "translate3d(0," + curY + "px,0)";
+  requestAnimationFrame(frame);
+  listenSet(true);
+  idleBar();
+}
+
+function stopPrompting(){
+  running = false;
+  listenSet(false);
+  manualSet(false);
+  el.prompter.classList.remove("on");
+  el.editor.style.display = "flex";
+  clearTimeout(barTimer);
+  el.bar.classList.remove("hide");
+}
+
+/* bar auto-hide */
+var barTimer = null;
+function idleBar(){
+  clearTimeout(barTimer);
+  el.bar.classList.remove("hide");
+  barTimer = setTimeout(function(){
+    if(running && !el.dot.classList.contains("err")) el.bar.classList.add("hide");
+  }, 3500);
+}
+
+/* ------------------------------------------------------------------ *
+ * Persistence
+ * ------------------------------------------------------------------ */
+function save(){
+  try {
+    localStorage.setItem("tp.v1", JSON.stringify({
+      text: el.input.value, lang: el.lang.value, size: el.size.value,
+      line: el.linepos.value, mx: el.mirrorX.checked, my: el.mirrorY.checked
+    }));
+  } catch(e){}
+}
+function load(){
+  try {
+    var d = JSON.parse(localStorage.getItem("tp.v1") || "null");
+    if(!d) return;
+    if(d.text) el.input.value = d.text;
+    if(d.lang) el.lang.value = d.lang;
+    if(d.size) el.size.value = d.size;
+    if(d.line) el.linepos.value = d.line;
+    el.mirrorX.checked = !!d.mx;
+    el.mirrorY.checked = !!d.my;
+  } catch(e){}
+}
+
+/* ------------------------------------------------------------------ *
+ * Wiring
+ * ------------------------------------------------------------------ */
+$("#start").addEventListener("click", startPrompting);
+$("#clear").addEventListener("click", function(){ el.input.value = ""; el.input.focus(); save(); });
+$("#sample").addEventListener("click", function(){
+  el.input.value =
+    "Good morning, everyone, and thank you for being here.\n\n" +
+    "Today I want to talk about three things: where we started, what we learned along the way, " +
+    "and where we go from here.\n\n" +
+    "When we began this work in 2019, the whole team fit around a single table. " +
+    "We had one product, forty customers, and a very long list of things we did not yet know.\n\n" +
+    "What changed was not the strategy. It was the pace at which we were willing to be wrong, " +
+    "and how quickly we turned that into something better.\n\n" +
+    "So here is what I am asking of you for the next twelve months. " +
+    "Pick the hard problem. Share the work early. And keep talking to the people who use what we build.\n\n" +
+    "Thank you.";
+  save();
+});
+
+// bar buttons drop focus after a click, so Space stays a prompter shortcut
+function onBar(id, fn){
+  $(id).addEventListener("click", function(){ this.blur(); fn(); });
+}
+onBar("#toggle", function(){ listenSet(!listening); idleBar(); });
+onBar("#restart", function(){
+  cursor = 0; voice = 0; paceAcc = 0; unmatched = 0;
+  finalWords = []; interimWords = [];
+  paint(true); idleBar();
+});
+onBar("#manual", function(){ manualSet(!manualMode); idleBar(); });
+onBar("#bigger", function(){ bumpSize(4); });
+onBar("#smaller", function(){ bumpSize(-4); });
+onBar("#back", stopPrompting);
+
+function bumpSize(d){
+  var v = Math.max(20, Math.min(110, parseInt(el.size.value, 10) + d));
+  el.size.value = v;
+  applyLook();
+  idleBar();
+}
+
+el.size.addEventListener("input", applyLook);
+el.linepos.addEventListener("input", applyLook);
+el.lang.addEventListener("change", function(){
+  save();
+  if(listening) startRecog();
+});
+el.mirrorX.addEventListener("change", applyLook);
+el.mirrorY.addEventListener("change", applyLook);
+el.input.addEventListener("input", save);
+
+// click a word to move the cursor there
+el.script.addEventListener("click", function(e){
+  var t = e.target;
+  if(!t.classList || !t.classList.contains("w") || t.dataset.i === undefined) return;
+  cursor = parseInt(t.dataset.i, 10);
+  voice = cursor; paceAcc = 0; unmatched = 0;
+  finalWords = []; interimWords = [];
+  paint(false);
+});
+
+el.prompter.addEventListener("mousemove", idleBar);
+
+window.addEventListener("resize", function(){
+  el.readline.style.top = readLineY() + "px";
+  if(running){ aim(); }
+});
+
+document.addEventListener("keydown", function(e){
+  if(!running){
+    if(e.key === "Enter" && (e.ctrlKey || e.metaKey)) startPrompting();
+    return;
+  }
+  var k = e.key;
+  if(k === " "){ e.preventDefault(); listenSet(!listening); idleBar(); }
+  else if(k === "Escape"){ stopPrompting(); }
+  else if(k === "ArrowDown"){ e.preventDefault(); nudge(1); }
+  else if(k === "ArrowUp"){ e.preventDefault(); nudge(-1); }
+  else if(k === "PageDown"){ e.preventDefault(); nudge(12); }
+  else if(k === "PageUp"){ e.preventDefault(); nudge(-12); }
+  else if(k === "+" || k === "="){ bumpSize(4); }
+  else if(k === "-" || k === "_"){ bumpSize(-4); }
+  else if(k === "m" || k === "M"){ manualSet(!manualMode); idleBar(); }
+  else if(k === "d" || k === "D"){ el.debug.classList.toggle("show"); lastDebugAt = 0; }
+  else if(k === "r" || k === "R"){
+    cursor = 0; voice = 0; paceAcc = 0; unmatched = 0;
+    finalWords = []; interimWords = [];
+    paint(true); idleBar();
+  }
+  else if(k === "[" && manualMode){ manualWPM = Math.max(40, manualWPM - 10); manualSet(true); }
+  else if(k === "]" && manualMode){ manualWPM = Math.min(400, manualWPM + 10); manualSet(true); }
+});
+
+function nudge(n){
+  cursor = Math.max(0, Math.min(tokens.length, cursor + n));
+  voice = cursor; paceAcc = 0; unmatched = 0;
+  finalWords = []; interimWords = [];
+  paint(false);
+  idleBar();
+}
+
+/* startup checks */
+load();
+applyLook();
+syncToggle();
+
+if(!SR){
+  el.warn.innerHTML = "This browser has no speech recognition. Voice tracking needs <strong>Chrome</strong> or <strong>Edge</strong> on desktop. You can still use the prompter with the <strong>Auto-scroll</strong> button.";
+  el.warn.classList.add("show");
+} else if(location.protocol === "file:"){
+  el.warn.innerHTML = "You opened this file directly. Chrome usually blocks the microphone on <code>file://</code> pages - if the mic does not start, run <strong>start-teleprompter.bat</strong> instead, which serves it on localhost.";
+  el.warn.classList.add("show");
+}
+if(/electron/i.test(navigator.userAgent)){
+  el.warn.innerHTML = "This page is running inside an embedded browser (VS Code or similar). Chrome's speech service does not work here, so the prompter cannot hear you. Run <strong>start-teleprompter.bat</strong> so it opens in real Chrome.";
+  el.warn.classList.add("show");
+}
+
+})();
+</script>
+</body>
+</html>
