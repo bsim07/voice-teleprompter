@@ -59,7 +59,7 @@ badly off-script.
 ## Jumping between paragraphs by voice
 
 Pause for **5 seconds**, then read the **opening words of any paragraph**
-(up to six). The prompter recognises the opening, jumps to that paragraph,
+(four are enough; if one was misheard it retries with up to six). The prompter recognises the opening, jumps to that paragraph,
 and carries on prompting from there — ideal for retakes and for recording
 sections out of order. The pill shows "Jumped to paragraph N" when it fires.
 Details that keep it safe:

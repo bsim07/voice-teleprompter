@@ -714,26 +714,33 @@ function anchorCheck(spoken){
   var now = performance.now();
   if(now - anchorArmedAt > 7000 || spoken.length > 10){ anchorArmedAt = 0; return false; }
   if(spoken.length < 3) return false;
-  var k = Math.min(spoken.length, 6);
-  var head = spoken.slice(0, k);       // the first words spoken after the pause
-  var need = k >= 4 ? 0.7 : 0.85;      // fewer words demand near-perfection
-  var best = null;
-  for(var p = 0; p < paraStarts.length; p++){
-    var s = paraStarts[p];
-    var r = align(head, s, Math.min(tokens.length - 1, s + k + 2), null);
-    if(r && (!best || r.score > best.score)){ best = r; best.para = p; }
+  // four opening words are enough to name a paragraph; if one of them was
+  // misheard, a second attempt with up to six words can still resolve it
+  var tryLens = [Math.min(spoken.length, 4), Math.min(spoken.length, 6)];
+  for(var t = 0; t < tryLens.length; t++){
+    var k = tryLens[t];
+    if(t > 0 && k === tryLens[0]) break; // no more words than the first try had
+    var head = spoken.slice(0, k);       // the first words spoken after the pause
+    var need = k >= 4 ? 0.7 : 0.85;      // fewer words demand near-perfection
+    var best = null;
+    for(var p = 0; p < paraStarts.length; p++){
+      var s = paraStarts[p];
+      var r = align(head, s, Math.min(tokens.length - 1, s + k + 2), null);
+      if(r && (!best || r.score > best.score)){ best = r; best.para = p; }
+    }
+    if(!best || best.score < need) continue;
+    var next = Math.min(best.pos + 1, tokens.length);
+    anchorArmedAt = 0;
+    if(Math.abs(next - voice) <= 2) return false; // that is where we already are
+    voice = next;
+    unmatched = 0;
+    lastMatchAt = now;
+    lastAdvanceAt = now;
+    setStatus("Jumped to paragraph " + (best.para + 1), "live");
+    statusHold = now + 1800;
+    return true;
   }
-  if(!best || best.score < need) return false;   // stay armed: more words may decide it
-  var next = Math.min(best.pos + 1, tokens.length);
-  anchorArmedAt = 0;
-  if(Math.abs(next - voice) <= 2) return false;  // that is where we already are
-  voice = next;
-  unmatched = 0;
-  lastMatchAt = now;
-  lastAdvanceAt = now;
-  setStatus("Jumped to paragraph " + (best.para + 1), "live");
-  statusHold = now + 1800;
-  return true;
+  return false;                          // stay armed: more words may decide it
 }
 
 /* ------------------------------------------------------------------ *
