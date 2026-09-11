@@ -56,6 +56,22 @@ Spoken words go grey, the next word is amber, the rest stay white.
 Click any word to move the cursor straight to it — the quickest fix if you go
 badly off-script.
 
+## Jumping between paragraphs by voice
+
+Pause for **5 seconds**, then read the **opening words of any paragraph**
+(up to six). The prompter recognises the opening, jumps to that paragraph,
+and carries on prompting from there — ideal for retakes and for recording
+sections out of order. The pill shows "Jumped to paragraph N" when it fires.
+Details that keep it safe:
+
+- Only armed after a real pause, and only for the first few words you speak —
+  mid-flow reading never triggers it.
+- The opening must match convincingly (one misheard word in six is fine;
+  chatter and ad-libs are ignored).
+- Simply continuing where you left off still works — the jump only fires on
+  a paragraph opening, not on ordinary resumed reading.
+- Paragraphs are the lines/blocks of your script as you typed them.
+
 ## Keeping your eyes still (looking natural on camera)
 
 Left-right eye drift is what gives away that someone is reading. Three tools,

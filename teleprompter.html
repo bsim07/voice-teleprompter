@@ -282,6 +282,8 @@ var unmatched = 0;      // spoken words since the last match - off-script counte
 var lastRecoverAt = 0;  // throttles whole-script re-sync searches
 var lastMatchAt = 0;    // last time any speech matched the script
 var lastGuessAt = 0;    // throttles least-bad "best guess" re-syncs
+var paraStarts = [];    // token index of each paragraph's first word
+var anchorArmedAt = 0;  // set after a long pause: the next words may pick a paragraph
 var quietLevel = 0;     // 0 hearing speech, 1 short pause, 2 long silence (mic hint)
 var statusHold = 0;     // keep a transient status message up until this time
 var lastWpm = 0;        // last time the wpm readout was refreshed
@@ -298,6 +300,7 @@ var LOOK_BACK = 12;  // allow re-syncing slightly behind the voice position
 var LOOK_AHEAD = 70; // ...and a good way ahead if lines were skipped
 var THRESHOLD = 0.55; // minimum alignment confidence to move at all
 var RECOVER = 0.7;   // stricter bar for a whole-script re-sync jump
+var PAUSE_JUMP = 5000; // ms of silence that arms paragraph jumping
 
 /* ------------------------------------------------------------------ *
  * Text normalising + fuzzy matching
@@ -406,6 +409,8 @@ function wordScore(spoken, tok){
 function buildScript(text){
   el.script.innerHTML = "";
   tokens = [];
+  paraStarts = [];
+  anchorArmedAt = 0;
   cursor = 0;
   voice = 0;
   paceAcc = 0;
@@ -426,6 +431,7 @@ function buildScript(text){
       frag.appendChild(p);
       return;
     }
+    var mark = tokens.length; // first token of this paragraph, for pause-jumps
     line.trim().split(/\s+/).forEach(function(word){
       var span = document.createElement("span");
       span.className = "w";
@@ -438,6 +444,7 @@ function buildScript(text){
       p.appendChild(span);
       p.appendChild(document.createTextNode(" "));
     });
+    if(tokens.length > mark) paraStarts.push(mark);
     frag.appendChild(p);
   });
 
@@ -698,6 +705,37 @@ function guessResync(spoken){
   return true;
 }
 
+// After a reading pause of PAUSE_JUMP ms, the next words spoken are matched
+// against the FIRST words of every paragraph. A strong hit jumps the prompter
+// to that paragraph and reading continues from there - so a presenter can
+// pause, then restart any section just by reading its opening line.
+function anchorCheck(spoken){
+  if(!anchorArmedAt || !paraStarts.length) return false;
+  var now = performance.now();
+  if(now - anchorArmedAt > 7000 || spoken.length > 10){ anchorArmedAt = 0; return false; }
+  if(spoken.length < 3) return false;
+  var k = Math.min(spoken.length, 6);
+  var head = spoken.slice(0, k);       // the first words spoken after the pause
+  var need = k >= 4 ? 0.7 : 0.85;      // fewer words demand near-perfection
+  var best = null;
+  for(var p = 0; p < paraStarts.length; p++){
+    var s = paraStarts[p];
+    var r = align(head, s, Math.min(tokens.length - 1, s + k + 2), null);
+    if(r && (!best || r.score > best.score)){ best = r; best.para = p; }
+  }
+  if(!best || best.score < need) return false;   // stay armed: more words may decide it
+  var next = Math.min(best.pos + 1, tokens.length);
+  anchorArmedAt = 0;
+  if(Math.abs(next - voice) <= 2) return false;  // that is where we already are
+  voice = next;
+  unmatched = 0;
+  lastMatchAt = now;
+  lastAdvanceAt = now;
+  setStatus("Jumped to paragraph " + (best.para + 1), "live");
+  statusHold = now + 1800;
+  return true;
+}
+
 /* ------------------------------------------------------------------ *
  * Speech recognition
  * ------------------------------------------------------------------ */
@@ -713,7 +751,7 @@ function setStatus(text, cls){
 // arriving - environment, event counts, last error, and the tracker state.
 function debugText(now){
   var errAgo = lastError ? lastError + " (" + Math.round((now - lastErrorAt) / 1000) + "s ago)" : "-";
-  return "tracker       v3\n" +
+  return "tracker       v4" + (anchorArmedAt ? " (para-jump armed)" : "") + "\n" +
          "recognition   " + (SR ? "available" : "MISSING") + (listening ? ", listening" : ", off") + "\n" +
          "page          " + location.protocol + "//" + (location.host || "local file") + "\n" +
          "browser       " + (/electron/i.test(navigator.userAgent) ? "EMBEDDED - speech will not work here" : "ok") + "\n" +
@@ -743,6 +781,13 @@ function startRecog(){
   };
 
   recog.onresult = function(e){
+    // resuming after a long pause: treat what comes next as fresh speech and
+    // arm the paragraph jump - the next few words may name a new section
+    if(performance.now() - lastVoiceAt > PAUSE_JUMP && tokens.length){
+      finalWords = [];
+      interimWords = [];
+      anchorArmedAt = performance.now();
+    }
     var interim = "";
     for(var i = e.resultIndex; i < e.results.length; i++){
       var r = e.results[i];
@@ -761,11 +806,12 @@ function startRecog(){
     netErrors = 0;
     var all = finalWords.concat(interimWords);
     el.heard.textContent = all.slice(-9).join(" ");
+    var jumped = anchorCheck(all);
     var ok = advance(all);
     // plenty of speech but no match near the cursor: look script-wide,
     // and if even that fails, take the least-bad local guess over freezing
-    if(!ok && unmatched >= 8) ok = tryRecover(all);
-    if(!ok) guessResync(all);
+    if(!ok && !jumped && unmatched >= 8) ok = tryRecover(all);
+    if(!ok && !jumped) guessResync(all);
   };
 
   recog.onerror = function(e){
