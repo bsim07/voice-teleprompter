@@ -56,6 +56,20 @@ Spoken words go grey, the next word is amber, the rest stay white.
 Click any word to move the cursor straight to it — the quickest fix if you go
 badly off-script.
 
+## Keeping your eyes still (looking natural on camera)
+
+Left-right eye drift is what gives away that someone is reading. Three tools,
+in increasing order of strength:
+
+1. **Narrow column** — the default 55% centred column keeps lines short
+   (4–6 words), so each sweep is small. Narrow it further for stronger effect.
+2. **Bigger text + more distance** — sit further from the screen; the same
+   column covers a smaller angle of vision, so the eyes barely move.
+3. **Fixed gaze mode** (`G`, or the checkbox) — the word being read stays
+   pinned at the centre of the screen and the text slides underneath it.
+   Your eyes literally never move. Best combined with placing the window
+   directly under your webcam.
+
 Your script and settings are saved in the browser, so closing the tab loses nothing.
 
 ## If tracking drifts

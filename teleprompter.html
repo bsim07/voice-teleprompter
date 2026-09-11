@@ -178,6 +178,12 @@
         <label for="linepos">Reading line <span id="lineVal">38</span>%</label>
         <input type="range" id="linepos" min="15" max="70" step="1" value="38">
       </div>
+      <div class="field">
+        <label for="colwidth">Column width <span id="colVal">55</span>%</label>
+        <input type="range" id="colwidth" min="30" max="100" step="5" value="55">
+      </div>
+      <label class="check"><input type="checkbox" id="centerText" checked> Centre text</label>
+      <label class="check"><input type="checkbox" id="fixedGaze"> Fixed gaze (word stays centred)</label>
       <label class="check"><input type="checkbox" id="mirrorX"> Mirror horizontally</label>
       <label class="check"><input type="checkbox" id="mirrorY"> Flip vertically</label>
     </div>
@@ -196,6 +202,7 @@
       <kbd>&uarr;</kbd> <kbd>&darr;</kbd> nudge position &nbsp;·&nbsp;
       <kbd>+</kbd> <kbd>&minus;</kbd> text size &nbsp;·&nbsp;
       <kbd>M</kbd> manual auto-scroll &nbsp;·&nbsp;
+      <kbd>G</kbd> fixed gaze &nbsp;·&nbsp;
       <kbd>R</kbd> back to top &nbsp;·&nbsp;
       <kbd>D</kbd> diagnostics &nbsp;·&nbsp;
       <kbd>Esc</kbd> edit script.
@@ -239,6 +246,8 @@ var el = {
   heard:$("#heard"), progress:$("#progress"), warn:$("#warn"), pos:$("#pos"), debug:$("#debug"),
   lang:$("#lang"), size:$("#size"), sizeVal:$("#sizeVal"),
   linepos:$("#linepos"), lineVal:$("#lineVal"),
+  colwidth:$("#colwidth"), colVal:$("#colVal"), centerText:$("#centerText"),
+  fixedGaze:$("#fixedGaze"),
   mirrorX:$("#mirrorX"), mirrorY:$("#mirrorY")
 };
 
@@ -260,6 +269,8 @@ var manualWPM = 130;
 var manualAcc = 0;
 var lastFrame = 0;
 var targetY = 0, curY = 0;
+var targetX = 0, curX = 0; // horizontal glide for fixed-gaze mode
+var fixedGaze = false;     // keep the current word pinned at screen centre
 var fontSize = 46;
 var linePct = 38;
 
@@ -466,6 +477,9 @@ function aim(){
   if(i < 0) return;
   var node = tokens[i].el;
   targetY = readLineY() - node.offsetTop - el.script.offsetTop;
+  // fixed gaze: slide the text so the current word sits at screen centre,
+  // so the reader's eyes never travel left-to-right at all
+  targetX = fixedGaze ? (window.innerWidth / 2 - node.offsetLeft - node.offsetWidth / 2) : 0;
 }
 
 // Walk the on-screen highlight toward the voice position one word at a time,
@@ -523,10 +537,12 @@ function frame(now){
   }
 
   var diff = targetY - curY;
-  if(Math.abs(diff) > 0.4){
+  var diffX = targetX - curX;
+  if(Math.abs(diff) > 0.4 || Math.abs(diffX) > 0.4){
     // ease toward the target; snap if we are miles away (big jump)
     curY += Math.abs(diff) > 1200 ? diff * 0.35 : diff * (1 - Math.pow(0.0015, dt));
-    el.stage.style.transform = "translate3d(0," + curY.toFixed(1) + "px,0)";
+    curX += Math.abs(diffX) > 1200 ? diffX * 0.35 : diffX * (1 - Math.pow(0.0015, dt));
+    el.stage.style.transform = "translate3d(" + curX.toFixed(1) + "px," + curY.toFixed(1) + "px,0)";
   }
   requestAnimationFrame(frame);
 }
@@ -846,7 +862,14 @@ function applyLook(){
   linePct = parseInt(el.linepos.value, 10);
   el.sizeVal.textContent = fontSize;
   el.lineVal.textContent = linePct;
+  el.colVal.textContent = el.colwidth.value;
+  fixedGaze = el.fixedGaze.checked;
   el.script.style.fontSize = fontSize + "px";
+  // a narrow centred column keeps the reader's eyes near the camera axis
+  // instead of sweeping the full width of the screen on every line
+  el.script.style.maxWidth = el.colwidth.value + "%";
+  el.script.style.margin = "0 auto";
+  el.script.style.textAlign = el.centerText.checked ? "center" : "left";
   el.readline.style.top = readLineY() + "px";
   el.viewport.classList.toggle("mirrorX", el.mirrorX.checked);
   el.viewport.classList.toggle("mirrorY", el.mirrorY.checked);
@@ -868,12 +891,13 @@ function startPrompting(){
   el.editor.style.display = "none";
   el.prompter.classList.add("on");
   running = true;
-  curY = 0; targetY = 0; lastFrame = 0;
+  curY = 0; targetY = 0; curX = 0; targetX = 0; lastFrame = 0;
   el.stage.style.transform = "translate3d(0,0,0)";
   applyLook();
   aim();
   curY = targetY;
-  el.stage.style.transform = "translate3d(0," + curY + "px,0)";
+  curX = targetX;
+  el.stage.style.transform = "translate3d(" + curX + "px," + curY + "px,0)";
   requestAnimationFrame(frame);
   listenSet(true);
   idleBar();
@@ -906,7 +930,8 @@ function save(){
   try {
     localStorage.setItem("tp.v1", JSON.stringify({
       text: el.input.value, lang: el.lang.value, size: el.size.value,
-      line: el.linepos.value, mx: el.mirrorX.checked, my: el.mirrorY.checked
+      line: el.linepos.value, mx: el.mirrorX.checked, my: el.mirrorY.checked,
+      col: el.colwidth.value, ctr: el.centerText.checked, fg: el.fixedGaze.checked
     }));
   } catch(e){}
 }
@@ -918,6 +943,9 @@ function load(){
     if(d.lang) el.lang.value = d.lang;
     if(d.size) el.size.value = d.size;
     if(d.line) el.linepos.value = d.line;
+    if(d.col) el.colwidth.value = d.col;
+    if(d.ctr !== undefined) el.centerText.checked = !!d.ctr;
+    el.fixedGaze.checked = !!d.fg;
     el.mirrorX.checked = !!d.mx;
     el.mirrorY.checked = !!d.my;
   } catch(e){}
@@ -967,6 +995,9 @@ function bumpSize(d){
 
 el.size.addEventListener("input", applyLook);
 el.linepos.addEventListener("input", applyLook);
+el.colwidth.addEventListener("input", applyLook);
+el.centerText.addEventListener("change", applyLook);
+el.fixedGaze.addEventListener("change", applyLook);
 el.lang.addEventListener("change", function(){
   save();
   if(listening) startRecog();
@@ -1008,6 +1039,7 @@ document.addEventListener("keydown", function(e){
   else if(k === "-" || k === "_"){ bumpSize(-4); }
   else if(k === "m" || k === "M"){ manualSet(!manualMode); idleBar(); }
   else if(k === "d" || k === "D"){ el.debug.classList.toggle("show"); lastDebugAt = 0; }
+  else if(k === "g" || k === "G"){ el.fixedGaze.checked = !el.fixedGaze.checked; applyLook(); idleBar(); }
   else if(k === "r" || k === "R"){
     cursor = 0; voice = 0; paceAcc = 0; unmatched = 0;
     finalWords = []; interimWords = [];
