@@ -5,7 +5,14 @@ No install, no account, no network — it is one HTML file.
 
 ## Run it
 
-Double-click **start-teleprompter.bat**.
+**Easiest — just open the link (nothing to install):**
+
+> https://bsim07.github.io/voice-teleprompter/
+
+Open it in desktop Chrome or Edge, allow the microphone, paste your script,
+and start. This is the link to share with other people.
+
+**Or run it locally / offline:** double-click **start-teleprompter.bat**.
 
 It serves the folder on `http://127.0.0.1:8777` and opens Chrome. Allow the
 microphone when asked. Press any key in the black console window to stop.
